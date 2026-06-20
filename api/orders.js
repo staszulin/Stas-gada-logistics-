@@ -1,19 +1,26 @@
 let orders = [];
 
-export default async function handler(req, res) {
+export default function handler(req, res) {
+  res.setHeader("Content-Type", "application/json");
 
   try {
-    const body = typeof req.body === "string"
+    const body = req.body && typeof req.body === "string"
       ? JSON.parse(req.body)
-      : req.body;
+      : req.body || {};
+
+    if (req.method === "GET") {
+      return res.status(200).json({
+        ok: true,
+        orders
+      });
+    }
 
     if (req.method === "POST") {
-
       const order = {
         id: Date.now(),
-        chain: body?.chain || "",
-        branch: body?.branch || "",
-        city: body?.city || "",
+        chain: body.chain || "לא הוזן",
+        branch: body.branch || "לא הוזן",
+        city: body.city || "לא הוזן",
         status: "new",
         pallets: 0,
         createdAt: new Date().toISOString()
@@ -21,19 +28,21 @@ export default async function handler(req, res) {
 
       orders.push(order);
 
-      return res.status(200).json(order);
+      return res.status(200).json({
+        ok: true,
+        order
+      });
     }
 
-    if (req.method === "GET") {
-      return res.status(200).json(orders);
-    }
-
-    return res.status(405).json({ error: "Method not allowed" });
+    return res.status(405).json({
+      ok: false,
+      error: "Method not allowed"
+    });
 
   } catch (err) {
     return res.status(500).json({
-      error: "Server error",
-      details: err.message
+      ok: false,
+      error: err.message
     });
   }
 }
