@@ -1,0 +1,905 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="default"/>
+  <meta name="apple-mobile-web-app-title" content="Gada Group"/>
+  <meta name="mobile-web-app-capable" content="yes"/>
+  <meta name="theme-color" content="#1E40AF"/>
+  <title>Gada Group</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0;}
+    html,body{height:100%;background:#F1F5F9;}
+    body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;direction:rtl;-webkit-text-size-adjust:100%;}
+    ::-webkit-scrollbar{width:5px;height:5px;}
+    ::-webkit-scrollbar-track{background:#f1f5f9;}
+    ::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px;}
+    input[type=number]::-webkit-inner-spin-button{opacity:1;}
+    button:active{opacity:0.8;transform:scale(0.97);}
+    #loading{position:fixed;inset:0;background:#F1F5F9;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;z-index:9999;}
+    .spin{width:36px;height:36px;border:3px solid #BFDBFE;border-top-color:#1D4ED8;border-radius:50%;animation:spin .7s linear infinite;}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    /* iOS safe area */
+    #app{padding-bottom:env(safe-area-inset-bottom,0);}
+    /* install banner */
+    #ib{display:none;position:fixed;bottom:0;left:0;right:0;background:#1E40AF;color:#fff;
+      padding:12px 16px;padding-bottom:calc(12px + env(safe-area-inset-bottom,0));
+      z-index:200;align-items:center;gap:10px;font-size:13px;}
+    #ib.show{display:flex;}
+  </style>
+</head>
+<body>
+<div id="loading">
+  <div style="font-size:44px">🚛</div>
+  <div style="font-weight:800;font-size:18px;color:#1E293B">Gada Group</div>
+  <div class="spin"></div>
+</div>
+<div id="ib">
+  <span style="font-size:22px">📲</span>
+  <div style="flex:1"><div style="font-weight:700">הוסף למסך הבית</div>
+    <div style="font-size:11px;opacity:.85">שתף ⬆️ ← "הוסף למסך הבית"</div></div>
+  <button onclick="this.parentElement.classList.remove('show')"
+    style="background:rgba(255,255,255,.2);border:none;color:#fff;padding:6px 12px;border-radius:6px;cursor:pointer">✕</button>
+</div>
+<div id="app"></div>
+<script>
+/* © כל הזכויות שמורות לסטס זולין | Gada Group */
+
+const TRUCK_CAP = 10;
+const LS_KEY    = "dlv_v9";
+
+const ROUTES = {
+  golan_galil:   { label:"גולן + גליל עליון",  color:"#0EA5E9", emoji:"🏔️", short:"גולן",    desc:"קצרין→צפת→טבריה→כנרת",          maxKm:45, avoidDays:[], avoidNote:"" },
+  galil_lower:   { label:"גליל תחתון + עמק",   color:"#10B981", emoji:"🌾", short:"עמק",     desc:"קצרין→בית שאן→עפולה→נצרת",       maxKm:55, avoidDays:[], avoidNote:"" },
+  krayot_haifa:  { label:"קריות + חיפה + עכו", color:"#3B82F6", emoji:"⚓", short:"חיפה",    desc:"קצרין→חיפה→קריות→עכו→נהריה",     maxKm:65, avoidDays:[], avoidNote:"" },
+  sharon_north:  { label:"שרון + מרכז צפון",    color:"#8B5CF6", emoji:"🌊", short:"שרון",    desc:"חדרה→נתניה→כפר סבא→הרצליה",      maxKm:50, avoidDays:[], avoidNote:"" },
+  tel_aviv_gush: { label:"גוש דן",              color:"#F59E0B", emoji:"🏙️", short:"גוש דן", desc:'תל אביב→רמת גן→בני ברק→ר"ל',     maxKm:24, avoidDays:[], avoidNote:"" },
+  shfela:        { label:"שפלה",                color:"#F97316", emoji:"🏘️", short:"שפלה",    desc:'מודיעין→רמלה→יבנה→גדרה→רחובות',  maxKm:50, avoidDays:[], avoidNote:"" },
+  south_west:    { label:"דרום מערב",           color:"#EF4444", emoji:"🏖️", short:"דרום מ'", desc:"אשדוד→אשקלון→קרית גת→נתיבות",   maxKm:40, avoidDays:[0,4], avoidNote:"ראשון וחמישי — פקקים באשדוד" },
+  south_east:    { label:"נגב",                 color:"#DC2626", emoji:"🏜️", short:"נגב",     desc:"באר שבע→שדרות→אופקים→דימונה",    maxKm:65, avoidDays:[0,4], avoidNote:'ראשון וחמישי — כניסה לב"ש עמוסה' },
+  jerusalem:     { label:"ירושלים והסביבה",     color:"#A855F7", emoji:"🕌", short:"ירושלים", desc:"ירושלים→בית שמש→מודיעין עילית",  maxKm:35, avoidDays:[], avoidNote:"" },
+};
+
+const CHAIN_COLORS = {
+  "דן דיל":"#EF4444","זול סטוק":"#3B82F6","בום":"#F97316",
+  "מקס סטוק":"#8B5CF6","ביג סטוק":"#EC4899","סיטי מרקט":"#06B6D4","הסטוק":"#22C55E","גמה דיל":"#F59E0B",
+};
+
+const DAY_NAMES = ["ראשון","שני","שלישי","רביעי","חמישי","שישי","שבת"];
+
+const BRANCHES = [
+  {id:101,chain:"דן דיל",city:"עכו",address:"הרצל 20",route:"krayot_haifa",lat:32.926,lng:35.082},
+  {id:102,chain:"דן דיל",city:"קרית חיים",address:"איצטדיון 5",route:"krayot_haifa",lat:32.825,lng:35.065},
+  {id:103,chain:"דן דיל",city:"טירת כרמל",address:"המלאכה 3",route:"krayot_haifa",lat:32.763,lng:34.972},
+  {id:104,chain:"דן דיל",city:"פרדס חנה",address:"הדקלים 99",route:"sharon_north",lat:32.471,lng:34.966},
+  {id:105,chain:"דן דיל",city:"עפולה",address:"ארלוזורוב 29",route:"galil_lower",lat:32.609,lng:35.290},
+  {id:106,chain:"דן דיל",city:"רמת גן",address:"הרואה 123",route:"tel_aviv_gush",lat:32.082,lng:34.813},
+  {id:107,chain:"דן דיל",city:"תל אביב",address:"י.ל גורדון 40",route:"tel_aviv_gush",lat:32.085,lng:34.780},
+  {id:108,chain:"דן דיל",city:"חולון",address:"חנקין 79",route:"tel_aviv_gush",lat:32.011,lng:34.779},
+  {id:109,chain:"דן דיל",city:"פתח תקווה",address:"בן ציון גאליס 34",route:"tel_aviv_gush",lat:32.094,lng:34.888},
+  {id:110,chain:"דן דיל",city:"מודיעין",address:"שדרות המלאכות 14",route:"shfela",lat:31.898,lng:35.010},
+  {id:111,chain:"דן דיל",city:"יבנה",address:"הנחשול 22",route:"shfela",lat:31.876,lng:34.742},
+  {id:112,chain:"דן דיל",city:"באר שבע",address:"מקס נורדאו 1",route:"south_east",lat:31.243,lng:34.791},
+  {id:201,chain:"זול סטוק",city:"קרית ביאליק",address:"שכונת אפקה",route:"krayot_haifa",lat:32.836,lng:35.092},
+  {id:202,chain:"זול סטוק",city:"אלבטוף",address:"רומת אלהייב",route:"galil_lower",lat:32.862,lng:35.310},
+  {id:203,chain:"זול סטוק",city:"זרזיר",address:"אלסלאם 129",route:"galil_lower",lat:32.698,lng:35.198},
+  {id:204,chain:"זול סטוק",city:"בית שאן",address:"שאול המלך 22",route:"galil_lower",lat:32.497,lng:35.499},
+  {id:205,chain:"זול סטוק",city:"חריש",address:"התמדה 4א",route:"sharon_north",lat:32.458,lng:35.024},
+  {id:206,chain:"זול סטוק",city:"חדרה",address:"שכטמן 10",route:"sharon_north",lat:32.435,lng:34.918},
+  {id:207,chain:"זול סטוק",city:"יקנעם",address:"שדרות יצחק רבין",route:"galil_lower",lat:32.659,lng:35.104},
+  {id:208,chain:"זול סטוק",city:"קרני שומרון",address:"רחבעם זאבי 1",route:"sharon_north",lat:32.151,lng:35.025},
+  {id:209,chain:"זול סטוק",city:"ראש העין",address:"שבזי 12",route:"sharon_north",lat:32.095,lng:34.958},
+  {id:210,chain:"זול סטוק",city:"תל מונד",address:"א.ת תל מונד",route:"sharon_north",lat:32.266,lng:34.924},
+  {id:211,chain:"זול סטוק",city:"כפר סבא",address:"היוצרים 2",route:"sharon_north",lat:32.178,lng:34.912},
+  {id:212,chain:"זול סטוק",city:"רעננה",address:"אחוזה 77",route:"sharon_north",lat:32.184,lng:34.871},
+  {id:213,chain:"זול סטוק",city:"ראשון לציון",address:"מתחם חונים קונים",route:"tel_aviv_gush",lat:31.971,lng:34.789},
+  {id:214,chain:"זול סטוק",city:"באקה אל גרביה",address:"17 אבו נאר",route:"sharon_north",lat:32.417,lng:35.033},
+  {id:215,chain:"זול סטוק",city:"טייבה",address:"כביש ראשי 444",route:"sharon_north",lat:32.367,lng:34.998},
+  {id:216,chain:"זול סטוק",city:"אלעד",address:"יהודה הנשיא 95",route:"shfela",lat:32.054,lng:34.952},
+  {id:217,chain:"זול סטוק",city:"כפר קאסם",address:"חמזה 9",route:"shfela",lat:32.112,lng:34.977},
+  {id:218,chain:"זול סטוק",city:"טירה",address:"א.ת טירה המשולש",route:"sharon_north",lat:32.234,lng:34.952},
+  {id:219,chain:"זול סטוק",city:"תל אביב יפו",address:"חבר הלאומים 1",route:"tel_aviv_gush",lat:32.047,lng:34.754},
+  {id:220,chain:"זול סטוק",city:"אור יהודה",address:"המפעל 2",route:"tel_aviv_gush",lat:32.029,lng:34.856},
+  {id:221,chain:"זול סטוק",city:"אור עקיבא",address:"ההדס 22",route:"sharon_north",lat:32.508,lng:34.924},
+  {id:222,chain:"זול סטוק",city:"כפר קרע",address:"כפר קרע",route:"sharon_north",lat:32.508,lng:35.035},
+  {id:223,chain:"זול סטוק",city:"פתח תקווה",address:"גיסין אבשלום 11",route:"tel_aviv_gush",lat:32.094,lng:34.888},
+  {id:224,chain:"זול סטוק",city:"צור יצחק",address:"נחל אלכסנדר 19",route:"sharon_north",lat:32.210,lng:34.921},
+  {id:225,chain:"זול סטוק",city:"תל אביב",address:"חשמונאים 121",route:"tel_aviv_gush",lat:32.078,lng:34.786},
+  {id:226,chain:"זול סטוק",city:"שוהם",address:"אגוז 9",route:"shfela",lat:31.996,lng:34.950},
+  {id:227,chain:"זול סטוק",city:"בית אל",address:'מבנה המתנ"ס',route:"jerusalem",lat:31.937,lng:35.218},
+  {id:228,chain:"זול סטוק",city:"ירושלים",address:"הגננת 216",route:"jerusalem",lat:31.778,lng:35.223},
+  {id:229,chain:"זול סטוק",city:"מודיעין עילית",address:"אבני נזר 46",route:"jerusalem",lat:31.934,lng:35.048},
+  {id:230,chain:"זול סטוק",city:"ירושלים בית וגן",address:"הרב עוזיאל 86",route:"jerusalem",lat:31.763,lng:35.188},
+  {id:231,chain:"זול סטוק",city:"ירושלים כנפי נשרים",address:"כנפי נשרים 22",route:"jerusalem",lat:31.783,lng:35.175},
+  {id:232,chain:"זול סטוק",city:"ירושלים דוידקה",address:"יפו 97",route:"jerusalem",lat:31.782,lng:35.219},
+  {id:233,chain:"זול סטוק",city:"שער בנימין",address:"א.ת שער בנימין",route:"jerusalem",lat:31.929,lng:35.220},
+  {id:234,chain:"זול סטוק",city:"קרית מלאכי",address:"היוצר 1",route:"south_west",lat:31.731,lng:34.737},
+  {id:235,chain:"זול סטוק",city:"אשדוד",address:"בעלי המלאכה 4",route:"south_west",lat:31.804,lng:34.655},
+  {id:236,chain:"זול סטוק",city:"אשדוד סטאר סנטר",address:"סטאר סנטר",route:"south_west",lat:31.810,lng:34.650},
+  {id:237,chain:"זול סטוק",city:"קרית גת",address:"שדרות לכיש 173",route:"south_west",lat:31.611,lng:34.770},
+  {id:238,chain:"זול סטוק",city:"אופקים",address:"ז'בוטינסקי 20",route:"south_east",lat:31.308,lng:34.614},
+  {id:239,chain:"זול סטוק",city:"רהט",address:"כביש ראשי",route:"south_east",lat:31.393,lng:34.758},
+  {id:240,chain:"זול סטוק",city:"באר שבע",address:"פלח 7",route:"south_east",lat:31.243,lng:34.791},
+  {id:241,chain:"זול סטוק",city:"באר שבע אביה",address:"מבצע יואב 49",route:"south_east",lat:31.252,lng:34.797},
+  {id:242,chain:"זול סטוק",city:"שדרות",address:"פרץ סנטר",route:"south_east",lat:31.524,lng:34.597},
+  {id:243,chain:"זול סטוק",city:"אילת",address:"חטיבת גולני 38",route:"south_east",lat:29.560,lng:34.952},
+  {id:244,chain:"זול סטוק",city:"גדרה",address:"פינס 4",route:"shfela",lat:31.813,lng:34.773},
+  {id:245,chain:"זול סטוק",city:"גן יבנה",address:"הכישור 26",route:"shfela",lat:31.791,lng:34.703},
+  {id:246,chain:"זול סטוק",city:"יבנה",address:"הדוגית 16",route:"shfela",lat:31.876,lng:34.742},
+  {id:247,chain:"זול סטוק",city:"נתיבות",address:"מתחם צים אורבן",route:"south_east",lat:31.421,lng:34.588},
+  {id:301,chain:"בום",city:"אור יהודה",address:"החרושת 32",route:"tel_aviv_gush",lat:32.029,lng:34.856},
+  {id:302,chain:"בום",city:"אשדוד",address:"קניון הסיטי",route:"south_west",lat:31.804,lng:34.655},
+  {id:303,chain:"בום",city:"אשקלון",address:"התחייה",route:"south_west",lat:31.668,lng:34.572},
+  {id:304,chain:"בום",city:"באר טוביה",address:"גלובוס סנטר",route:"south_west",lat:31.724,lng:34.733},
+  {id:305,chain:"בום",city:"באר שבע עזריאלי",address:"קניון עזריאלי הנגב",route:"south_east",lat:31.244,lng:34.797},
+  {id:306,chain:"בום",city:"באר שבע הרכבת",address:"בן צבי 10",route:"south_east",lat:31.243,lng:34.799},
+  {id:307,chain:"בום",city:"בני ברק",address:"בר כוכבא 23",route:"tel_aviv_gush",lat:32.083,lng:34.833},
+  {id:308,chain:"בום",city:"חיפה",address:"יהודה איתין 5",route:"krayot_haifa",lat:32.794,lng:34.989},
+  {id:309,chain:"בום",city:"מבקיעים",address:"גלובוס סנטר",route:"south_west",lat:31.629,lng:34.579},
+  {id:310,chain:"בום",city:"נשר",address:"דרך בר יהודה 54",route:"krayot_haifa",lat:32.766,lng:35.040},
+  {id:311,chain:"בום",city:"פתח תקווה",address:"בר כוכבא 7",route:"tel_aviv_gush",lat:32.094,lng:34.888},
+  {id:312,chain:"בום",city:"קרית גת",address:"אסתר המלכה 7",route:"south_west",lat:31.611,lng:34.770},
+  {id:313,chain:"בום",city:"ראשון לציון",address:"לישנסקי 20",route:"tel_aviv_gush",lat:31.971,lng:34.789},
+  {id:314,chain:"בום",city:"רמלה",address:"משה אדרת 4",route:"shfela",lat:31.929,lng:34.874},
+  {id:315,chain:"בום",city:"שפיים",address:"מתחם שפיים",route:"sharon_north",lat:32.234,lng:34.843},
+  {id:401,chain:"מקס סטוק",city:"אום אל פחם",address:"מקס 20",route:"galil_lower",lat:32.523,lng:35.152},
+  {id:402,chain:"מקס סטוק",city:"אור עקיבא",address:"ההדס 22",route:"sharon_north",lat:32.508,lng:34.924},
+  {id:403,chain:"מקס סטוק",city:"אילת",address:"הסתת 17",route:"south_east",lat:29.560,lng:34.952},
+  {id:404,chain:"מקס סטוק",city:"אריאל",address:"מלון אשל השומרון",route:"sharon_north",lat:32.104,lng:35.178},
+  {id:405,chain:"מקס סטוק",city:"אשדוד",address:"בעלי המלאכה 4",route:"south_west",lat:31.804,lng:34.655},
+  {id:406,chain:"מקס סטוק",city:"אשקלון",address:"הפנינים 40",route:"south_west",lat:31.668,lng:34.572},
+  {id:407,chain:"מקס סטוק",city:"באר שבע",address:"חיל הנדסה 1",route:"south_east",lat:31.243,lng:34.791},
+  {id:408,chain:"מקס סטוק",city:"בית שמש",address:"קניון נעימי",route:"jerusalem",lat:31.742,lng:34.987},
+  {id:409,chain:"מקס סטוק",city:"בני ברק",address:"לח",route:"tel_aviv_gush",lat:32.083,lng:34.833},
+  {id:410,chain:"מקס סטוק",city:"מיני מקס בני ברק",address:"רבי עקיבא 14",route:"tel_aviv_gush",lat:32.083,lng:34.833},
+  {id:411,chain:"מקס סטוק",city:"בת ים",address:"בלפור 84",route:"tel_aviv_gush",lat:32.017,lng:34.751},
+  {id:412,chain:"מקס סטוק",city:"מיני מקס גבעתיים",address:"וייצמן 23",route:"tel_aviv_gush",lat:32.066,lng:34.813},
+  {id:413,chain:"מקס סטוק",city:"גדרה",address:"א.ת גדרה",route:"shfela",lat:31.813,lng:34.773},
+  {id:414,chain:"מקס סטוק",city:"חיפה",address:"חוצות המפרץ",route:"krayot_haifa",lat:32.794,lng:34.989},
+  {id:415,chain:"מקס סטוק",city:"ירושלים מלחה",address:"מלחה",route:"jerusalem",lat:31.745,lng:35.187},
+  {id:416,chain:"מקס סטוק",city:"ירושלים תלפיות",address:"תלפיות",route:"jerusalem",lat:31.758,lng:35.225},
+  {id:417,chain:"מקס סטוק",city:"כפר סבא",address:"א.ת כפר סבא",route:"sharon_north",lat:32.178,lng:34.912},
+  {id:418,chain:"מקס סטוק",city:"כרמיאל",address:"מיי סנטר",route:"krayot_haifa",lat:32.919,lng:35.297},
+  {id:419,chain:"מקס סטוק",city:"מודיעין",address:"ישפרו סנטר",route:"shfela",lat:31.898,lng:35.010},
+  {id:420,chain:"מקס סטוק",city:"מיני מקס נחלת יצחק",address:"נחלת יצחק 8",route:"tel_aviv_gush",lat:32.071,lng:34.793},
+  {id:421,chain:"מקס סטוק",city:"נהריה",address:"א.ת נהריה",route:"krayot_haifa",lat:33.005,lng:35.098},
+  {id:422,chain:"מקס סטוק",city:"נס ציונה",address:"ישפרו סנטר",route:"tel_aviv_gush",lat:31.930,lng:34.798},
+  {id:423,chain:"מקס סטוק",city:"נצרת עילית",address:"א.ת",route:"galil_lower",lat:32.706,lng:35.313},
+  {id:424,chain:"מקס סטוק",city:"נתניה",address:"א.ת נתניה",route:"sharon_north",lat:32.333,lng:34.860},
+  {id:425,chain:"מקס סטוק",city:"עפולה",address:"BIG עפולה",route:"galil_lower",lat:32.609,lng:35.290},
+  {id:426,chain:"מקס סטוק",city:"פתח תקווה",address:"א.ת פתח תקווה",route:"tel_aviv_gush",lat:32.094,lng:34.888},
+  {id:427,chain:"מקס סטוק",city:"קרית ים",address:"א.ת קרית ים",route:"krayot_haifa",lat:32.851,lng:35.074},
+  {id:428,chain:"מקס סטוק",city:"קרית שמונה",address:"א.ת קרית שמונה",route:"golan_galil",lat:33.207,lng:35.571},
+  {id:429,chain:"מקס סטוק",city:"ראשון לציון",address:'ONE ראשל"צ',route:"tel_aviv_gush",lat:31.971,lng:34.789},
+  {id:430,chain:"מקס סטוק",city:"רחובות",address:"א.ת רחובות",route:"shfela",lat:31.895,lng:34.812},
+  {id:431,chain:"מקס סטוק",city:"תל אביב",address:"קיקר המדינה",route:"tel_aviv_gush",lat:32.098,lng:34.780},
+  {id:432,chain:"מקס סטוק",city:"בארות יצחק",address:"ONE בארות יצחק",route:"tel_aviv_gush",lat:32.042,lng:34.882},
+  {id:433,chain:"מקס סטוק",city:"חולון",address:"א.ת חולון",route:"tel_aviv_gush",lat:32.011,lng:34.779},
+  {id:434,chain:"מקס סטוק",city:"יבנה",address:"א.ת יבנה",route:"shfela",lat:31.876,lng:34.742},
+  {id:501,chain:"ביג סטוק",city:"באר שבע מול 7",address:'הע"ל 30',route:"south_east",lat:31.232,lng:34.797},
+  {id:502,chain:"ביג סטוק",city:"באר שבע קרית הממשלה",address:"התקווה 4",route:"south_east",lat:31.243,lng:34.791},
+  {id:503,chain:"ביג סטוק",city:"שדרות",address:"מול 7 צמוד לרכבת",route:"south_east",lat:31.517,lng:34.589},
+  {id:504,chain:"ביג סטוק",city:"נתניה",address:"א.ת נתניה",route:"sharon_north",lat:32.333,lng:34.860},
+  {id:505,chain:"ביג סטוק",city:"מבשרת ציון",address:"מבשרת ציון",route:"jerusalem",lat:31.800,lng:35.150},
+  {id:506,chain:"ביג סטוק",city:"ירושלים תלפיות",address:"תלפיות",route:"jerusalem",lat:31.758,lng:35.225},
+  {id:601,chain:"סיטי מרקט",city:"תל אביב",address:"א.ת הצפון",route:"tel_aviv_gush",lat:32.098,lng:34.780},
+  {id:602,chain:"סיטי מרקט",city:"ירושלים",address:"גבעת שאול",route:"jerusalem",lat:31.790,lng:35.175},
+  {id:603,chain:"סיטי מרקט",city:"ראשון לציון",address:"א.ת ראשון לציון",route:"tel_aviv_gush",lat:31.971,lng:34.789},
+  {id:604,chain:"סיטי מרקט",city:"חיפה קריות",address:"א.ת הקריות",route:"krayot_haifa",lat:32.836,lng:35.092},
+  {id:605,chain:"סיטי מרקט",city:"נתניה",address:"א.ת נתניה",route:"sharon_north",lat:32.333,lng:34.860},
+  {id:606,chain:"סיטי מרקט",city:"אשדוד",address:"א.ת אשדוד",route:"south_west",lat:31.804,lng:34.655},
+  {id:607,chain:"סיטי מרקט",city:"באר שבע",address:"א.ת באר שבע",route:"south_east",lat:31.243,lng:34.791},
+  {id:608,chain:"סיטי מרקט",city:"פתח תקווה",address:"א.ת פתח תקווה",route:"tel_aviv_gush",lat:32.094,lng:34.888},
+  {id:609,chain:"סיטי מרקט",city:"רחובות",address:"א.ת רחובות",route:"shfela",lat:31.895,lng:34.812},
+  {id:701,chain:"הסטוק",city:"אופקים",address:"ז'בוטינסקי 33",route:"south_east",lat:31.308,lng:34.614},
+  {id:702,chain:"הסטוק",city:"אור יהודה",address:"המלאכה 11",route:"tel_aviv_gush",lat:32.029,lng:34.856},
+  {id:703,chain:"הסטוק",city:"אילת",address:"א.ת אילת",route:"south_east",lat:29.560,lng:34.952},
+  {id:704,chain:"הסטוק",city:"באר שבע",address:"מרכז נווה זאב",route:"south_east",lat:31.243,lng:34.791},
+  {id:705,chain:"הסטוק",city:"בארות יצחק",address:"מתחם ONE",route:"tel_aviv_gush",lat:32.042,lng:34.882},
+  {id:706,chain:"הסטוק",city:"בית שאן",address:"מרכז צים",route:"galil_lower",lat:32.497,lng:35.499},
+  {id:707,chain:"הסטוק",city:"בית שמש",address:"כיכר נוימן",route:"jerusalem",lat:31.742,lng:34.987},
+  {id:708,chain:"הסטוק",city:"בת ים",address:"העצמאות 67",route:"tel_aviv_gush",lat:32.017,lng:34.751},
+  {id:709,chain:"הסטוק",city:"חיפה",address:"א.ת חיפה",route:"krayot_haifa",lat:32.794,lng:34.989},
+  {id:710,chain:"הסטוק",city:"חולון",address:"א.ת חולון",route:"tel_aviv_gush",lat:32.011,lng:34.779},
+  {id:711,chain:"הסטוק",city:"טבריה",address:"א.ת טבריה",route:"golan_galil",lat:32.796,lng:35.530},
+  {id:712,chain:"הסטוק",city:"ירושלים",address:"א.ת ירושלים",route:"jerusalem",lat:31.778,lng:35.223},
+  {id:713,chain:"הסטוק",city:"נתניה",address:"א.ת נתניה",route:"sharon_north",lat:32.333,lng:34.860},
+  {id:714,chain:"הסטוק",city:"נצרת עילית",address:"א.ת נצרת עילית",route:"galil_lower",lat:32.706,lng:35.313},
+  {id:715,chain:"הסטוק",city:"פרדס חנה",address:"א.ת פרדס חנה",route:"sharon_north",lat:32.471,lng:34.966},
+  {id:716,chain:"הסטוק",city:"פתח תקווה",address:"דן טאון",route:"tel_aviv_gush",lat:32.094,lng:34.888},
+  {id:717,chain:"הסטוק",city:"קרית מלאכי",address:"א.ת קרית מלאכי",route:"south_west",lat:31.731,lng:34.737},
+  {id:718,chain:"הסטוק",city:"ראשון לציון",address:"א.ת ראשון לציון",route:"tel_aviv_gush",lat:31.971,lng:34.789},
+  {id:719,chain:"הסטוק",city:"רחובות",address:"א.ת רחובות",route:"shfela",lat:31.895,lng:34.812},
+  {id:720,chain:"הסטוק",city:"ערד",address:"א.ת ערד",route:"south_east",lat:31.258,lng:35.213},
+  {id:721,chain:"הסטוק",city:"קרית גת",address:"א.ת קרית גת",route:"shfela",lat:31.611,lng:34.770},
+  {id:722,chain:"הסטוק",city:"אשדוד",address:"א.ת אשדוד",route:"south_west",lat:31.804,lng:34.655},
+  {id:723,chain:"הסטוק",city:"עפולה",address:"א.ת עפולה",route:"galil_lower",lat:32.609,lng:35.290},
+  {id:724,chain:"הסטוק",city:"שדרות",address:"א.ת שדרות",route:"south_east",lat:31.524,lng:34.597},
+  {id:725,chain:"הסטוק",city:"אשקלון",address:"א.ת אשקלון",route:"south_west",lat:31.668,lng:34.572},
+  {id:726,chain:"הסטוק",city:"רמלה",address:"א.ת רמלה",route:"shfela",lat:31.929,lng:34.874},
+  {id:727,chain:"הסטוק",city:"כרמיאל",address:"א.ת כרמיאל",route:"krayot_haifa",lat:32.919,lng:35.297},
+  {id:728,chain:"הסטוק",city:"מודיעין",address:"א.ת מודיעין",route:"shfela",lat:31.898,lng:35.010},
+  {id:729,chain:"הסטוק",city:"נהריה",address:"א.ת נהריה",route:"krayot_haifa",lat:33.005,lng:35.098},
+  {id:730,chain:"הסטוק",city:"קרית שמונה",address:"א.ת קרית שמונה",route:"golan_galil",lat:33.207,lng:35.571},
+  {id:801,chain:"גמה דיל",city:"כרמיאל ביג",address:"ביג כרמיאל",route:"krayot_haifa",lat:32.919,lng:35.297},
+  {id:802,chain:"גמה דיל",city:"כרמיאל חרושת",address:"חרושת",route:"krayot_haifa",lat:32.912,lng:35.291},
+  {id:803,chain:"גמה דיל",city:"נהריה הגדוד",address:"הגדוד 21",route:"krayot_haifa",lat:33.005,lng:35.098},
+  {id:804,chain:"גמה דיל",city:"נהריה געתון",address:"מתחם רכבת",route:"krayot_haifa",lat:33.002,lng:35.093},
+  {id:805,chain:"גמה דיל",city:"עכו",address:"ליד רמי לוי",route:"krayot_haifa",lat:32.926,lng:35.082},
+  {id:806,chain:"גמה דיל",city:"חיפה עזריאלי",address:"קניון עזריאלי חיפה",route:"krayot_haifa",lat:32.794,lng:34.989},
+  {id:807,chain:"גמה דיל",city:"חיפה גרנד קניון",address:"גרנד קניון חיפה",route:"krayot_haifa",lat:32.804,lng:34.994},
+];
+
+// ── Utils ──────────────────────────────────
+const todayStr=()=>new Date().toISOString().slice(0,10);
+const todayDow=()=>new Date().getDay();
+const daysSince=d=>d?Math.floor((Date.now()-new Date(d).getTime())/86400000):0;
+const fmtDate=d=>{if(!d)return"";const[y,m,dd]=d.split("-");return`${dd}/${m}`;};
+
+function loadState(){try{const r=localStorage.getItem("dlv_v9");if(r)return JSON.parse(r);}catch{}return null;}
+function saveState(s){try{localStorage.setItem("dlv_v9",JSON.stringify(s));}catch{}}
+
+// ── App State ──────────────────────────────
+const saved=loadState();
+let state={
+  branches: saved?.branches||BRANCHES,
+  orders:   saved?.orders||{},
+  thresh:   saved?.thresh||Object.fromEntries(Object.keys(ROUTES).map(k=>[k,3])),
+  tab:"orders",
+  search:"",
+  filterChain:"all",
+  collapsed:{},
+  editMode:null,
+  form:{chain:"",city:"",address:"",route:"tel_aviv_gush",lat:"",lng:""},
+  mgmtSearch:"",
+  formErr:"",
+  flashMsg:"",
+};
+
+function getQty(id){return state.orders[id]?.qty||0;}
+function getDate(id){return state.orders[id]?.date||null;}
+function setOrder(id,qty,date){
+  if(qty<=0){delete state.orders[id];}
+  else{state.orders[id]={qty,date:date||state.orders[id]?.date||todayStr()};}
+  persist();render();
+}
+function persist(){saveState({branches:state.branches,orders:state.orders,thresh:state.thresh});}
+
+// ── Render engine ──────────────────────────
+function render(){
+  const app=document.getElementById("app");
+  app.innerHTML="";
+  app.appendChild(buildApp());
+}
+
+function el(tag,attrs,...children){
+  const e=document.createElement(tag);
+  if(attrs)Object.entries(attrs).forEach(([k,v])=>{
+    if(k==="style"&&typeof v==="object")Object.assign(e.style,v);
+    else if(k.startsWith("on"))e.addEventListener(k.slice(2).toLowerCase(),v);
+    else if(k==="className")e.className=v;
+    else e.setAttribute(k,v);
+  });
+  children.flat(Infinity).forEach(c=>{
+    if(c==null||c===false)return;
+    e.appendChild(typeof c==="string"||typeof c==="number"?document.createTextNode(c):c);
+  });
+  return e;
+}
+
+function span(txt,style){return el("span",{style},txt);}
+function div(style,...ch){return el("div",{style},...ch);}
+function btn(label,onClick,style){const b=el("button",{onClick,style});b.innerHTML=label;return b;}
+
+// ── Computed ───────────────────────────────
+function getRouteStats(){
+  const dow=todayDow(),s={};
+  Object.keys(ROUTES).forEach(rk=>{
+    const br=state.branches.filter(b=>b.route===rk);
+    const active=br.filter(b=>getQty(b.id)>0);
+    const pallets=active.reduce((a,b)=>a+getQty(b.id),0);
+    const thr=state.thresh[rk]||3;
+    const urgent=active.filter(b=>daysSince(getDate(b.id))>=thr);
+    const oldest=active.length?Math.max(...active.map(b=>daysSince(getDate(b.id)))):0;
+    const avoided=ROUTES[rk].avoidDays.includes(dow);
+    s[rk]={br,active,pallets,urgent,oldest,avoided};
+  });
+  return s;
+}
+
+// urgency: 0=ok 1=warn 2=urgent
+const UB=[
+  {bg:"#F0FDF4",border:"#86EFAC",text:"#15803D"},
+  {bg:"#FFFBEB",border:"#FCD34D",text:"#B45309"},
+  {bg:"#FEF2F2",border:"#FCA5A5",text:"#B91C1C"},
+];
+function urgLevel(days,thr){if(!days)return 0;const r=days/thr;if(r>=1)return 2;if(r>=0.67)return 1;return 0;}
+
+// ── Build Header ───────────────────────────
+function buildApp(){
+  const dow=todayDow();
+  const isFri=dow===5||dow===6;
+  const stats=getRouteStats();
+  const totalPallets=Object.values(state.orders).reduce((s,o)=>s+(o.qty||0),0);
+  const activeCount=state.branches.filter(b=>getQty(b.id)>0).length;
+  const totalUrgent=Object.values(stats).reduce((s,r)=>s+r.urgent.length,0);
+  const chains=[...new Set(state.branches.map(b=>b.chain))].sort();
+
+  const wrap=div({minHeight:"100vh",background:"#F1F5F9",fontFamily:"'Segoe UI',Tahoma,sans-serif",direction:"rtl"});
+
+  // ── HEADER ──
+  const hdr=div({background:"#fff",borderBottom:"1.5px solid #E2E8F0",position:"sticky",top:0,zIndex:100,boxShadow:"0 1px 3px rgba(0,0,0,.06)"});
+  const hdrInner=div({maxWidth:"960px",margin:"0 auto",padding:"0 12px"});
+
+  const titleRow=div({display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0 6px",flexWrap:"wrap",gap:"8px"});
+  const logo=div({display:"flex",alignItems:"center",gap:"10px"});
+  logo.appendChild(div({background:"#1E40AF",borderRadius:"10px",width:"38px",height:"38px",display:"flex",alignItems:"center",justifyContent:"center",fontSize:"20px",flexShrink:"0"},"🚛"));
+  const logoText=div({});
+  logoText.appendChild(div({fontSize:"16px",fontWeight:"800",color:"#1E293B"},"Gada Group"));
+  logoText.appendChild(div({fontSize:"11px",color:"#94A3B8"},`יום ${DAY_NAMES[dow]} · ${state.branches.length} סניפים${state.flashMsg?" · "+state.flashMsg:""}`));
+  logo.appendChild(logoText);
+
+  const pills=div({display:"flex",gap:"7px",flexWrap:"wrap"});
+  const mkPill=(v,l,c,i)=>{
+    const p=div({background:c+"15",border:`1px solid ${c}30`,borderRadius:"8px",padding:"6px 10px",textAlign:"center",minWidth:"58px"});
+    p.appendChild(div({fontSize:"17px",fontWeight:"900",color:c},`${i} ${v}`));
+    p.appendChild(div({fontSize:"10px",color:"#64748B",marginTop:"1px"},l));
+    return p;
+  };
+  pills.appendChild(mkPill(totalPallets,"משטחים","#1D4ED8","📦"));
+  pills.appendChild(mkPill(activeCount,"פעילים","#059669","🏪"));
+  if(totalUrgent>0)pills.appendChild(mkPill(totalUrgent,"דחוף","#DC2626","⏰"));
+  titleRow.appendChild(logo);titleRow.appendChild(pills);
+  hdrInner.appendChild(titleRow);
+
+  // Tabs
+  const tabBar=div({display:"flex",overflowX:"auto",borderTop:"1px solid #F1F5F9",gap:"2px"});
+  const tabs=[
+    {id:"orders",l:"📋 הזמנות"},
+    {id:"schedule",l:"📅 יומי"},
+    {id:"urgent",l:`⏰ דחוף${totalUrgent>0?` (${totalUrgent})`:""}`},
+    {id:"summary",l:"📊 סיכום"},
+    {id:"manage",l:"⚙️ סניפים"},
+  ];
+  tabs.forEach(t=>{
+    const isActive=state.tab===t.id;
+    const tb=el("button",{
+      onClick:()=>{state.tab=t.id;state.editMode=null;render();},
+      style:{padding:"10px 13px",background:"none",border:"none",cursor:"pointer",fontSize:"13px",
+        borderBottom:isActive?"2.5px solid #1D4ED8":"2.5px solid transparent",
+        color:isActive?"#1D4ED8":(t.id==="urgent"&&totalUrgent>0?"#DC2626":"#64748B"),
+        fontWeight:isActive?"700":"400",whiteSpace:"nowrap"}
+    },t.l);
+    tabBar.appendChild(tb);
+  });
+  hdrInner.appendChild(tabBar);
+  hdr.appendChild(hdrInner);
+  wrap.appendChild(hdr);
+
+  // ── BODY ──
+  const body=div({maxWidth:"960px",margin:"0 auto",padding:"16px 12px"});
+
+  if(isFri){
+    body.appendChild(div({background:"#FEF2F2",border:"1.5px solid #FCA5A5",borderRadius:"10px",padding:"12px 14px",marginBottom:"14px",fontSize:"13px",fontWeight:"600",color:"#991B1B"},
+      `🚫 היום ${DAY_NAMES[dow]} — אין יציאות. יחזור לפעילות ביום ראשון.`));
+  }
+
+  // ══ ORDERS ══
+  if(state.tab==="orders"){
+    // Filter bar
+    const fbar=div({display:"flex",gap:"8px",marginBottom:"14px",flexWrap:"wrap"});
+    const searchWrap=div({flex:"1",minWidth:"150px",position:"relative"});
+    searchWrap.appendChild(span("🔍",{position:"absolute",right:"10px",top:"50%",transform:"translateY(-50%)",color:"#94A3B8",fontSize:"14px",pointerEvents:"none"}));
+    const sinp=el("input",{type:"text",placeholder:"חיפוש עיר / רשת...",value:state.search,
+      onInput:e=>{state.search=e.target.value;render();},
+      style:{width:"100%",padding:"9px 32px 9px 10px",border:"1.5px solid #E2E8F0",borderRadius:"9px",fontSize:"13px",outline:"none",background:"#fff"}});
+    searchWrap.appendChild(sinp);fbar.appendChild(searchWrap);
+
+    const sel=el("select",{onChange:e=>{state.filterChain=e.target.value;render();},
+      style:{padding:"9px 10px",border:"1.5px solid #E2E8F0",borderRadius:"9px",fontSize:"13px",background:"#fff",cursor:"pointer",color:"#374151"}});
+    [["all","כל הרשתות"],...chains.map(c=>[c,c])].forEach(([v,l])=>{
+      const o=el("option",{value:v},l);if(v===state.filterChain)o.selected=true;sel.appendChild(o);
+    });
+    fbar.appendChild(sel);
+
+    const totalP=Object.values(state.orders).reduce((s,o)=>s+(o.qty||0),0);
+    if(totalP>0){
+      fbar.appendChild(btn("🗑 נקה",()=>{state.orders={};persist();render();},
+        {padding:"9px 14px",background:"#FEF2F2",border:"1.5px solid #FCA5A5",borderRadius:"9px",color:"#DC2626",cursor:"pointer",fontSize:"13px",fontWeight:"600"}));
+    }
+    body.appendChild(fbar);
+
+    // Route groups
+    Object.entries(ROUTES).forEach(([rk,route])=>{
+      const filtered=state.branches.filter(b=>{
+        if(b.route!==rk)return false;
+        if(state.filterChain!=="all"&&b.chain!==state.filterChain)return false;
+        if(state.search&&!b.city.includes(state.search)&&!b.chain.includes(state.search))return false;
+        return true;
+      });
+      if(!filtered.length)return;
+      const rs=stats[rk];
+      const thr=state.thresh[rk]||3;
+      const isCol=state.collapsed[rk];
+
+      const card=div({background:"#fff",border:"1.5px solid #E2E8F0",borderRadius:"12px",marginBottom:"10px",overflow:"hidden"});
+
+      // Header
+      const rh=div({display:"flex",alignItems:"center",gap:"10px",padding:"11px 14px",cursor:"pointer",
+        borderBottom:isCol?"none":"1.5px solid #F1F5F9",userSelect:"none"});
+      rh.addEventListener("click",()=>{state.collapsed[rk]=!state.collapsed[rk];render();});
+      rh.appendChild(div({width:"4px",height:"36px",background:route.color,borderRadius:"2px",flexShrink:"0"}));
+      rh.appendChild(span(route.emoji,{fontSize:"16px"}));
+      const rtitle=div({flex:"1"});
+      rtitle.appendChild(div({fontSize:"13px",fontWeight:"700",color:"#1E293B"},route.label));
+      rtitle.appendChild(div({fontSize:"11px",color:"#94A3B8"},route.desc));
+      rh.appendChild(rtitle);
+
+      const rbadges=div({display:"flex",gap:"5px",alignItems:"center",flexWrap:"wrap"});
+      if(rs.avoided&&!isFri)rbadges.appendChild(span("⚠️ עמוס היום",{fontSize:"11px",fontWeight:"700",color:"#DC2626",background:"#FEF2F2",padding:"2px 7px",borderRadius:"5px",whiteSpace:"nowrap"}));
+      if(rs.pallets>0)rbadges.appendChild(span(`${rs.pallets} משטח${rs.pallets>1?"ים":""}`,{fontSize:"12px",fontWeight:"700",color:route.color,background:route.color+"15",padding:"3px 9px",borderRadius:"6px",whiteSpace:"nowrap"}));
+      if(rs.urgent.length>0)rbadges.appendChild(span(`⏰ ${rs.urgent.length}`,{fontSize:"11px",fontWeight:"700",color:"#DC2626",background:"#FEF2F2",padding:"2px 7px",borderRadius:"5px"}));
+      rbadges.appendChild(span(isCol?"▼":"▲",{fontSize:"12px",color:"#94A3B8",fontWeight:"700"}));
+      rh.appendChild(rbadges);
+      card.appendChild(rh);
+
+      if(!isCol){
+        if(rs.avoided&&!isFri&&route.avoidNote){
+          card.appendChild(div({padding:"7px 14px",background:"#FEF2F2",fontSize:"12px",color:"#B91C1C"},`⚠️ ${route.avoidNote}`));
+        }
+        filtered.forEach((branch,idx)=>{
+          const qty=getQty(branch.id);
+          const dateVal=getDate(branch.id);
+          const days=daysSince(dateVal);
+          const urg=qty>0?urgLevel(days,thr):0;
+          const uc=UB[urg];
+          const clr=CHAIN_COLORS[branch.chain]||"#64748B";
+
+          const row=div({display:"flex",alignItems:"center",gap:"9px",padding:"9px 14px",
+            borderBottom:idx<filtered.length-1?"1px solid #F1F5F9":"none",
+            background:qty>0?(urg>0?uc.bg:"#F8FAFF"):"#fff",
+            flexWrap:"wrap",transition:"background .1s",cursor:"default"});
+
+          // Chain badge
+          row.appendChild(span(branch.chain,{display:"inline-block",padding:"2px 8px",borderRadius:"4px",fontSize:"11px",fontWeight:"700",
+            background:clr+"18",color:clr,border:`1px solid ${clr}30`,whiteSpace:"nowrap",flexShrink:"0"}));
+
+          // Info
+          const info=div({flex:"1",minWidth:"90px"});
+          info.appendChild(div({fontSize:"14px",fontWeight:qty>0?"700":"500",color:"#1E293B"},branch.city));
+          info.appendChild(div({fontSize:"11px",color:"#94A3B8"},branch.address));
+          row.appendChild(info);
+
+          // Days badge
+          if(qty>0&&days>0){
+            row.appendChild(span(`📅 ${fmtDate(dateVal)} · ${days}ד'`,{fontSize:"11px",fontWeight:"600",
+              background:uc.bg,color:uc.text,border:`1px solid ${uc.border}`,padding:"2px 7px",borderRadius:"5px",whiteSpace:"nowrap"}));
+          }
+          // Date picker
+          if(qty>0){
+            const dp=el("input",{type:"date",value:dateVal||todayStr(),
+              onChange:e=>setOrder(branch.id,qty,e.target.value),
+              style:{border:"1.5px solid #E2E8F0",borderRadius:"7px",padding:"4px 6px",fontSize:"11px",color:"#64748B",background:"#F8FAFC",outline:"none",cursor:"pointer"}});
+            row.appendChild(dp);
+          }
+
+          // Qty controls
+          const qw=div({display:"flex",alignItems:"center",gap:"5px"});
+          const decBtn=el("button",{onClick:()=>setOrder(branch.id,Math.max(0,qty-1),dateVal),
+            style:{width:"32px",height:"32px",borderRadius:"8px",border:`1.5px solid ${qty>0?"#FCA5A5":"#E2E8F0"}`,
+              background:qty>0?"#FEF2F2":"#F1F5F9",color:qty>0?"#DC2626":"#94A3B8",
+              cursor:"pointer",fontSize:"18px",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:"500"}},
+            "−");
+          const qinp=el("input",{type:"number",min:"0",value:qty||"",placeholder:"0",
+            onChange:e=>setOrder(branch.id,Math.max(0,parseInt(e.target.value)||0),dateVal),
+            style:{width:"44px",height:"32px",textAlign:"center",border:`1.5px solid ${qty>0?"#3B82F6":"#E2E8F0"}`,
+              borderRadius:"8px",fontSize:"16px",fontWeight:qty>0?"700":"400",
+              color:qty>0?"#1D4ED8":"#94A3B8",background:"#F8FAFC",outline:"none"}});
+          const incBtn=el("button",{onClick:()=>setOrder(branch.id,qty+1,dateVal||todayStr()),
+            style:{width:"32px",height:"32px",borderRadius:"8px",border:"1.5px solid #BFDBFE",
+              background:"#EFF6FF",color:"#1D4ED8",cursor:"pointer",fontSize:"18px",
+              display:"flex",alignItems:"center",justifyContent:"center",fontWeight:"500"}},"+");
+          qw.appendChild(decBtn);qw.appendChild(qinp);qw.appendChild(incBtn);
+          row.appendChild(qw);
+
+          if(qty>0){
+            row.appendChild(span(`${qty}✕`,{fontSize:"12px",fontWeight:"700",color:"#1D4ED8",
+              background:"#EFF6FF",padding:"3px 9px",borderRadius:"6px",minWidth:"48px",textAlign:"center",whiteSpace:"nowrap"}));
+          }
+          card.appendChild(row);
+        });
+      }
+      body.appendChild(card);
+    });
+  }
+
+  // ══ SCHEDULE ══
+  else if(state.tab==="schedule"){
+    if(!isFri){
+      body.appendChild(div({background:"#EFF6FF",border:"1.5px solid #BFDBFE",borderRadius:"10px",padding:"10px 14px",
+        marginBottom:"16px",fontSize:"13px",color:"#1E40AF"},
+        `📅 היום יום ${DAY_NAMES[dow]} — ירוק = כדאי · אדום = להימנע (דרום) · שישי = סגור`));
+    }
+    const grid=div({display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))",gap:"12px"});
+    Object.entries(ROUTES).forEach(([rk,route])=>{
+      const rs=stats[rk];
+      const thr=state.thresh[rk]||3;
+      const avoided=!isFri&&route.avoidDays.includes(dow);
+      const card=div({background:avoided?"#FEF2F2":"#fff",
+        border:`2px solid ${avoided?"#FCA5A5":rs.urgent.length>0?"#FCA5A5":rs.pallets>0?route.color+"60":"#E2E8F0"}`,
+        borderRadius:"14px",padding:"16px"});
+
+      const ch=div({display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:"10px"});
+      const cl=div({});
+      cl.appendChild(div({fontSize:"20px",marginBottom:"4px"},route.emoji));
+      cl.appendChild(div({fontWeight:"800",color:route.color,fontSize:"14px"},route.label));
+      cl.appendChild(div({fontSize:"11px",color:"#94A3B8",marginTop:"2px"},route.desc));
+      const cr=div({display:"flex",flexDirection:"column",alignItems:"flex-end",gap:"5px"});
+      cr.appendChild(span(avoided?"🚫 להימנע":"✅ כדאי",{
+        background:avoided?"#FEE2E2":"#F0FDF4",
+        border:`1px solid ${avoided?"#FCA5A5":"#86EFAC"}`,
+        borderRadius:"7px",padding:"4px 9px",fontSize:"11px",
+        color:avoided?"#DC2626":"#15803D",fontWeight:"700",whiteSpace:"nowrap"}));
+      if(rs.pallets>0){
+        const pn=div({textAlign:"center",marginTop:"4px"});
+        pn.appendChild(div({fontSize:"24px",fontWeight:"900",color:route.color},rs.pallets));
+        pn.appendChild(div({fontSize:"9px",color:"#94A3B8"},"משטחים"));
+        cr.appendChild(pn);
+      }
+      ch.appendChild(cl);ch.appendChild(cr);card.appendChild(ch);
+
+      if(avoided&&route.avoidNote){
+        card.appendChild(div({fontSize:"11px",color:"#B91C1C",background:"#FEE2E2",padding:"6px 9px",borderRadius:"7px",marginBottom:"8px"},`⚠️ ${route.avoidNote}`));
+      }
+
+      // Day chips
+      const dc=div({display:"flex",gap:"4px",marginBottom:"10px",flexWrap:"wrap"});
+      ["א","ב","ג","ד","ה"].forEach((_,d)=>{
+        const isAv=route.avoidDays.includes(d),isCur=d===dow;
+        dc.appendChild(span(`${"אבגדה"[d]}'`,{padding:"2px 7px",borderRadius:"5px",fontSize:"11px",
+          fontWeight:isCur?"800":"500",background:isAv?"#FEE2E2":"#F0FDF4",
+          color:isAv?"#DC2626":"#15803D",
+          border:`1.5px solid ${isAv?(isCur?"#DC2626":"#FCA5A5"):(isCur?"#15803D":"#86EFAC")}`,
+          boxShadow:isCur?"0 0 0 2px #1D4ED830":"none"}));
+      });
+      dc.appendChild(span("ו'",{padding:"2px 7px",borderRadius:"5px",fontSize:"11px",fontWeight:"400",
+        background:"#F1F5F9",color:"#94A3B8",border:"1.5px solid #E2E8F0",textDecoration:"line-through"}));
+      card.appendChild(dc);
+
+      if(rs.pallets>0){buildTruckBar(card,rs.pallets,route.color);}
+      else{card.appendChild(div({fontSize:"12px",color:"#CBD5E1"},"אין הזמנות פתוחות"));}
+      grid.appendChild(card);
+    });
+    body.appendChild(grid);
+  }
+
+  // ══ URGENT ══
+  else if(state.tab==="urgent"){
+    // Thresholds
+    const tc=div({background:"#fff",border:"1.5px solid #E2E8F0",borderRadius:"12px",padding:"16px",marginBottom:"16px"});
+    tc.appendChild(div({fontWeight:"700",color:"#1E293B",fontSize:"14px",marginBottom:"12px"},"⏱️ ספי דחיפות לפי אזור (ימים)"));
+    const tg=div({display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(200px,1fr))",gap:"8px"});
+    Object.entries(ROUTES).forEach(([rk,route])=>{
+      const tr=div({display:"flex",alignItems:"center",gap:"8px",background:"#F8FAFC",borderRadius:"8px",padding:"8px 12px",border:`1.5px solid ${route.color}25`});
+      tr.appendChild(span(route.emoji,{fontSize:"14px"}));
+      tr.appendChild(span(route.short,{fontSize:"12px",fontWeight:"600",color:"#374151",flex:"1"}));
+      const ti=el("input",{type:"number",min:"1",max:"14",value:state.thresh[rk]||3,
+        onChange:e=>{state.thresh[rk]=Math.max(1,parseInt(e.target.value)||1);persist();render();},
+        style:{width:"40px",padding:"3px",border:`1.5px solid ${route.color}50`,borderRadius:"6px",
+          fontSize:"14px",fontWeight:"700",textAlign:"center",color:route.color,outline:"none",background:"#fff"}});
+      tr.appendChild(ti);tr.appendChild(span("ימים",{fontSize:"11px",color:"#94A3B8"}));
+      tg.appendChild(tr);
+    });
+    tc.appendChild(tg);body.appendChild(tc);
+
+    const tu=Object.values(stats).reduce((s,r)=>s+r.urgent.length,0);
+    if(tu===0){
+      const ok=div({textAlign:"center",padding:"60px 20px",background:"#fff",borderRadius:"12px",border:"1.5px solid #E2E8F0"});
+      ok.appendChild(div({fontSize:"40px",marginBottom:"10px"},"✅"));
+      ok.appendChild(div({fontWeight:"700",color:"#15803D",fontSize:"16px"},"אין הזמנות דחופות!"));
+      body.appendChild(ok);
+    } else {
+      Object.entries(ROUTES).forEach(([rk,route])=>{
+        const rs=stats[rk]; if(!rs.urgent.length)return;
+        const thr=state.thresh[rk]||3;
+        const card=div({background:"#fff",border:"1.5px solid #FCA5A5",borderRadius:"12px",marginBottom:"10px",overflow:"hidden"});
+        const ch=div({padding:"10px 14px",borderBottom:"1.5px solid #FEE2E2",background:"#FEF2F2",
+          display:"flex",justifyContent:"space-between",alignItems:"center"});
+        ch.appendChild(div({fontWeight:"800",color:route.color,fontSize:"13px"},`${route.emoji} ${route.label}`));
+        ch.appendChild(span(`${rs.urgent.length} הזמנות דחופות`,{fontSize:"12px",fontWeight:"700",color:"#DC2626"}));
+        card.appendChild(ch);
+        rs.urgent.forEach((b,i)=>{
+          const days=daysSince(getDate(b.id));
+          const uc=UB[urgLevel(days,thr)];
+          const clr=CHAIN_COLORS[b.chain]||"#64748B";
+          const row=div({display:"flex",alignItems:"center",gap:"10px",padding:"10px 14px",
+            borderBottom:i<rs.urgent.length-1?"1px solid #F1F5F9":"none",background:uc.bg});
+          row.appendChild(span(b.chain,{display:"inline-block",padding:"2px 8px",borderRadius:"4px",fontSize:"11px",
+            fontWeight:"700",background:clr+"18",color:clr,border:`1px solid ${clr}30`,whiteSpace:"nowrap"}));
+          const inf=div({flex:"1"});
+          inf.appendChild(div({fontWeight:"700",fontSize:"13px",color:"#1E293B"},b.city));
+          inf.appendChild(div({fontSize:"11px",color:"#94A3B8"},b.address));
+          row.appendChild(inf);
+          row.appendChild(span(`📅 ${fmtDate(getDate(b.id))} · ${days} ימים`,{fontSize:"12px",fontWeight:"700",
+            background:uc.bg,color:uc.text,border:`1px solid ${uc.border}`,padding:"3px 9px",borderRadius:"6px"}));
+          row.appendChild(span(`${getQty(b.id)} משטח${getQty(b.id)>1?"ים":""}`,{fontWeight:"700",color:"#1D4ED8",fontSize:"13px"}));
+          card.appendChild(row);
+        });
+        body.appendChild(card);
+      });
+    }
+  }
+
+  // ══ SUMMARY ══
+  else if(state.tab==="summary"){
+    const totalP=Object.values(state.orders).reduce((s,o)=>s+(o.qty||0),0);
+    if(totalP===0){
+      const e=div({textAlign:"center",padding:"60px 20px",background:"#fff",borderRadius:"12px",border:"1.5px solid #E2E8F0"});
+      e.appendChild(div({fontSize:"40px",marginBottom:"10px"},"📭"));
+      e.appendChild(div({color:"#94A3B8"},"אין הזמנות פעילות"));
+      body.appendChild(e);
+    } else {
+      const ac=state.branches.filter(b=>getQty(b.id)>0).length;
+      const tu=Object.values(stats).reduce((s,r)=>s+r.urgent.length,0);
+      const srow=div({display:"flex",gap:"10px",flexWrap:"wrap",marginBottom:"16px"});
+      [[totalP,"סה\"כ משטחים","#1D4ED8","📦"],[ac,"סניפים פעילים","#059669","🏪"],
+       [Object.values(stats).filter(r=>r.pallets>0).length,"מסלולים","#7C3AED","🗓️"],
+       ...(tu>0?[[tu,"דחוף","#DC2626","⏰"]]:[])]
+      .forEach(([v,l,c,i])=>{
+        const sc=div({flex:"1",minWidth:"85px",background:"#fff",border:`1.5px solid ${c}25`,borderRadius:"12px",padding:"13px 14px",textAlign:"center"});
+        sc.appendChild(div({fontSize:"20px"},i));
+        sc.appendChild(div({fontSize:"24px",fontWeight:"900",color:c,marginTop:"3px"},v));
+        sc.appendChild(div({fontSize:"11px",color:"#64748B",marginTop:"2px"},l));
+        srow.appendChild(sc);
+      });
+      body.appendChild(srow);
+
+      Object.entries(ROUTES).forEach(([rk,route])=>{
+        const rs=stats[rk]; if(!rs.pallets)return;
+        const thr=state.thresh[rk]||3;
+        const card=div({background:"#fff",border:`1.5px solid ${rs.urgent.length>0?"#FCA5A5":"#E2E8F0"}`,borderRadius:"12px",marginBottom:"10px",overflow:"hidden"});
+        const ch=div({padding:"10px 14px",borderBottom:"1.5px solid #F1F5F9",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:"6px"});
+        ch.appendChild(div({fontWeight:"800",color:route.color,fontSize:"14px"},`${route.emoji} ${route.label}`));
+        const badges=div({display:"flex",gap:"5px",flexWrap:"wrap"});
+        if(stats[rk].avoided&&!isFri)badges.appendChild(span("⚠️ עמוס",{fontSize:"11px",fontWeight:"600",color:"#DC2626",background:"#FEF2F2",padding:"2px 7px",borderRadius:"5px"}));
+        badges.appendChild(span(`${rs.pallets} משטחים`,{fontSize:"12px",fontWeight:"700",color:route.color,background:route.color+"15",padding:"3px 9px",borderRadius:"6px"}));
+        if(rs.urgent.length>0)badges.appendChild(span(`⏰ ${rs.urgent.length}`,{fontSize:"11px",fontWeight:"600",color:"#DC2626",background:"#FEF2F2",padding:"2px 7px",borderRadius:"5px"}));
+        ch.appendChild(badges);card.appendChild(ch);
+        const bd=div({padding:"10px 14px 12px"});
+        buildTruckBar(bd,rs.pallets,route.color);
+        const list=div({marginTop:"10px",display:"flex",flexDirection:"column",gap:"2px"});
+        rs.active.forEach((b,i)=>{
+          const days=daysSince(getDate(b.id));
+          const uc=UB[urgLevel(days,thr)];
+          const clr=CHAIN_COLORS[b.chain]||"#64748B";
+          const row=div({display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 10px",
+            background:i%2===0?"#FAFAFA":"#fff",borderRadius:"7px"});
+          const rl=div({display:"flex",alignItems:"center",gap:"7px",minWidth:"0"});
+          rl.appendChild(span(b.chain,{display:"inline-block",padding:"2px 7px",borderRadius:"4px",fontSize:"10px",fontWeight:"700",background:clr+"18",color:clr,border:`1px solid ${clr}30`,whiteSpace:"nowrap",flexShrink:"0"}));
+          rl.appendChild(span(b.city,{fontSize:"13px",fontWeight:"600",color:"#1E293B",whiteSpace:"nowrap"}));
+          rl.appendChild(span(`— ${b.address}`,{fontSize:"11px",color:"#94A3B8",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}));
+          const rr=div({display:"flex",gap:"7px",alignItems:"center",flexShrink:"0"});
+          if(days>0)rr.appendChild(span(`📅 ${fmtDate(getDate(b.id))} · ${days}ד'`,{fontSize:"11px",fontWeight:"600",color:uc.text,background:uc.bg,border:`1px solid ${uc.border}`,padding:"2px 6px",borderRadius:"5px"}));
+          rr.appendChild(span(`${getQty(b.id)} משטח${getQty(b.id)>1?"ים":""}`,{fontWeight:"800",color:"#1D4ED8",fontSize:"13px",whiteSpace:"nowrap"}));
+          row.appendChild(rl);row.appendChild(rr);list.appendChild(row);
+        });
+        bd.appendChild(list);card.appendChild(bd);body.appendChild(card);
+      });
+    }
+  }
+
+  // ══ MANAGE ══
+  else if(state.tab==="manage"){
+    // Status bar
+    const sb=div({background:"#F0FDF4",border:"1.5px solid #86EFAC",borderRadius:"10px",padding:"10px 14px",
+      marginBottom:"14px",display:"flex",alignItems:"center",gap:"10px",flexWrap:"wrap"});
+    sb.appendChild(span(`💾 שמירה אוטומטית · ${state.branches.length} סניפים`,{fontSize:"12px",color:"#15803D",fontWeight:"600"}));
+    const brset=div({display:"flex",gap:"8px",marginRight:"auto"});
+    brset.appendChild(btn("↺ אפס",()=>{
+      if(!confirm("לאפס הכל?"))return;
+      state.branches=BRANCHES;state.orders={};persist();render();
+    },{padding:"5px 12px",background:"#FEF2F2",border:"1.5px solid #FCA5A5",borderRadius:"7px",color:"#DC2626",cursor:"pointer",fontSize:"12px",fontWeight:"600"}));
+    sb.appendChild(brset);body.appendChild(sb);
+
+    // CSV info
+    const csvinfo=div({background:"#FFFBEB",border:"1.5px solid #FCD34D",borderRadius:"10px",padding:"10px 14px",marginBottom:"14px",fontSize:"12px",color:"#92400E"});
+    csvinfo.innerHTML="📋 <strong>ייבוא CSV:</strong> העלה קובץ עם עמודות: רשת, עיר, כתובת, אזור";
+    // File input
+    const fi=el("input",{type:"file",accept:".csv,.txt",
+      onChange:e=>{
+        const file=e.target.files[0];if(!file)return;
+        const reader=new FileReader();
+        reader.onload=ev=>{
+          const lines=ev.target.result.trim().split(/\r?\n/);
+          if(lines.length<2)return;
+          const headers=lines[0].split(",").map(h=>h.trim());
+          const ci=name=>headers.findIndex(h=>h.includes(name));
+          const chainI=ci("רשת")!==-1?ci("רשת"):ci("chain");
+          const cityI=ci("עיר")!==-1?ci("עיר"):ci("city");
+          const addrI=ci("כתובת")!==-1?ci("כתובת"):ci("address");
+          const routeI=ci("אזור")!==-1?ci("אזור"):ci("route");
+          if(chainI===-1||cityI===-1){alert("לא נמצאו עמודות 'רשת' ו'עיר'");return;}
+          const existing=new Set(state.branches.map(b=>b.chain+b.city));
+          let maxId=Math.max(...state.branches.map(b=>b.id));
+          let added=0;
+          for(let i=1;i<lines.length;i++){
+            const cols=lines[i].split(",").map(c=>c.trim().replace(/^"|"$/g,""));
+            const chain=cols[chainI]||"",city=cols[cityI]||"";
+            if(!chain||!city)continue;
+            const addr=addrI>=0?cols[addrI]||"":"";
+            let route=routeI>=0?cols[routeI]||"":"";
+            if(!ROUTES[route])route="tel_aviv_gush";
+            if(!existing.has(chain+city)){
+              state.branches.push({id:++maxId,chain,city,address:addr,route,lat:31.8,lng:34.8});
+              existing.add(chain+city);added++;
+            }
+          }
+          persist();
+          state.flashMsg=`✓ נוספו ${added} סניפים`;
+          setTimeout(()=>{state.flashMsg="";render();},3000);
+          render();
+        };
+        reader.readAsText(file,"UTF-8");
+      },
+      style:{display:"none"}});
+    const csvbtn=btn("📤 ייבוא CSV",()=>fi.click(),
+      {padding:"5px 12px",background:"#EFF6FF",border:"1.5px solid #BFDBFE",borderRadius:"7px",color:"#1D4ED8",cursor:"pointer",fontSize:"12px",fontWeight:"600"});
+    csvinfo.appendChild(fi);csvinfo.appendChild(csvbtn);
+    body.appendChild(csvinfo);
+
+    // Edit form
+    if(state.editMode!==null){
+      const fm=div({background:"#fff",border:"1.5px solid #BFDBFE",borderRadius:"12px",padding:"16px",marginBottom:"14px"});
+      fm.appendChild(div({fontWeight:"800",color:"#1E293B",fontSize:"15px",marginBottom:"14px"},state.editMode==="new"?"➕ הוספת סניף חדש":"✏️ עריכת סניף"));
+      const fg=div({display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px"});
+
+      [["רשת *","chain","מקס סטוק"],["עיר *","city","שם העיר"]].forEach(([label,field,ph])=>{
+        const fd=div({});
+        fd.appendChild(span(label,{fontSize:"11px",color:"#64748B",display:"block",marginBottom:"4px",fontWeight:"600"}));
+        const inp=el("input",{type:"text",placeholder:ph,value:state.form[field],
+          onInput:e=>{state.form[field]=e.target.value;},
+          style:{width:"100%",padding:"9px 10px",border:"1.5px solid #E2E8F0",borderRadius:"8px",fontSize:"13px",outline:"none",background:"#FAFAFA"}});
+        fd.appendChild(inp);fg.appendChild(fd);
+      });
+
+      // Address - full width
+      const ad=div({gridColumn:"1/-1"});
+      ad.appendChild(span("כתובת",{fontSize:"11px",color:"#64748B",display:"block",marginBottom:"4px",fontWeight:"600"}));
+      const ainp=el("input",{type:"text",placeholder:"רחוב ומספר",value:state.form.address,
+        onInput:e=>{state.form.address=e.target.value;},
+        style:{width:"100%",padding:"9px 10px",border:"1.5px solid #E2E8F0",borderRadius:"8px",fontSize:"13px",outline:"none",background:"#FAFAFA"}});
+      ad.appendChild(ainp);fg.appendChild(ad);
+
+      // Route select
+      const rd=div({});
+      rd.appendChild(span("אזור מסלול *",{fontSize:"11px",color:"#64748B",display:"block",marginBottom:"4px",fontWeight:"600"}));
+      const rs=el("select",{onChange:e=>{state.form.route=e.target.value;},
+        style:{width:"100%",padding:"9px 10px",border:"1.5px solid #E2E8F0",borderRadius:"8px",fontSize:"13px",background:"#FAFAFA",cursor:"pointer"}});
+      Object.entries(ROUTES).forEach(([k,r])=>{const o=el("option",{value:k},`${r.emoji} ${r.label}`);if(k===state.form.route)o.selected=true;rs.appendChild(o);});
+      rd.appendChild(rs);fg.appendChild(rd);
+
+      fm.appendChild(fg);
+      if(state.formErr)fm.appendChild(div({marginTop:"10px",color:"#DC2626",fontSize:"12px",fontWeight:"600"},`⚠️ ${state.formErr}`));
+
+      const fbts=div({display:"flex",gap:"8px",marginTop:"14px",justifyContent:"flex-end"});
+      fbts.appendChild(btn("ביטול",()=>{state.editMode=null;state.formErr="";render();},
+        {padding:"9px 18px",background:"#F1F5F9",border:"1.5px solid #E2E8F0",borderRadius:"8px",color:"#64748B",cursor:"pointer",fontSize:"13px"}));
+      fbts.appendChild(btn(state.editMode==="new"?"➕ הוסף":"💾 שמור",()=>{
+        if(!state.form.chain.trim()){state.formErr="חובה: שם רשת";render();return;}
+        if(!state.form.city.trim()){state.formErr="חובה: שם עיר";render();return;}
+        if(state.editMode==="new"){
+          const newId=Math.max(...state.branches.map(b=>b.id))+1;
+          state.branches.push({id:newId,chain:state.form.chain.trim(),city:state.form.city.trim(),
+            address:state.form.address.trim(),route:state.form.route,lat:31.8,lng:34.8});
+        } else {
+          const idx=state.branches.findIndex(b=>b.id===state.editMode);
+          if(idx>=0)Object.assign(state.branches[idx],{chain:state.form.chain.trim(),city:state.form.city.trim(),
+            address:state.form.address.trim(),route:state.form.route});
+        }
+        persist();state.editMode=null;state.formErr="";
+        state.flashMsg="✓ נשמר";setTimeout(()=>{state.flashMsg="";render();},2000);render();
+      },{padding:"9px 20px",background:"#1D4ED8",border:"none",borderRadius:"8px",color:"#fff",cursor:"pointer",fontSize:"13px",fontWeight:"700"}));
+      fm.appendChild(fbts);body.appendChild(fm);
+    }
+
+    // Search + add
+    const sb2=div({display:"flex",gap:"8px",marginBottom:"12px",alignItems:"center"});
+    const sw=div({flex:"1",position:"relative"});
+    sw.appendChild(span("🔍",{position:"absolute",right:"10px",top:"50%",transform:"translateY(-50%)",color:"#94A3B8"}));
+    const mi=el("input",{type:"text",placeholder:"חיפוש סניף...",value:state.mgmtSearch,
+      onInput:e=>{state.mgmtSearch=e.target.value;render();},
+      style:{width:"100%",padding:"9px 32px 9px 10px",border:"1.5px solid #E2E8F0",borderRadius:"9px",fontSize:"13px",outline:"none",background:"#fff"}});
+    sw.appendChild(mi);sb2.appendChild(sw);
+    const mgmtFiltered=state.branches.filter(b=>!state.mgmtSearch||b.city.includes(state.mgmtSearch)||b.chain.includes(state.mgmtSearch)||b.address.includes(state.mgmtSearch));
+    sb2.appendChild(span(`${mgmtFiltered.length}/${state.branches.length}`,{fontSize:"12px",color:"#94A3B8",whiteSpace:"nowrap"}));
+    if(state.editMode===null){
+      sb2.appendChild(btn("➕ הוסף",()=>{
+        state.editMode="new";
+        state.form={chain:"",city:"",address:"",route:"tel_aviv_gush",lat:"",lng:""};
+        state.formErr="";render();
+      },{padding:"9px 16px",background:"#1D4ED8",border:"none",borderRadius:"9px",color:"#fff",cursor:"pointer",fontSize:"13px",fontWeight:"700",whiteSpace:"nowrap"}));
+    }
+    body.appendChild(sb2);
+
+    // Branch table
+    const bt=div({background:"#fff",border:"1.5px solid #E2E8F0",borderRadius:"12px",overflow:"hidden"});
+    mgmtFiltered.forEach((b,idx)=>{
+      const clr=CHAIN_COLORS[b.chain]||"#64748B";
+      const route=ROUTES[b.route];
+      const isEd=state.editMode===b.id;
+      const row=div({display:"flex",alignItems:"center",gap:"9px",padding:"9px 14px",
+        borderBottom:idx<mgmtFiltered.length-1?"1px solid #F1F5F9":"none",
+        background:isEd?"#EFF6FF":"#fff",cursor:"default"});
+      row.appendChild(span(b.chain,{display:"inline-block",padding:"2px 8px",borderRadius:"4px",fontSize:"10px",fontWeight:"700",
+        background:clr+"18",color:clr,border:`1px solid ${clr}30`,whiteSpace:"nowrap",flexShrink:"0"}));
+      const info=div({flex:"1",minWidth:"0"});
+      info.appendChild(div({fontWeight:"600",fontSize:"13px",color:"#1E293B"},b.city));
+      info.appendChild(div({fontSize:"11px",color:"#94A3B8",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"},b.address));
+      row.appendChild(info);
+      if(route)row.appendChild(span(`${route.emoji} ${route.short}`,{fontSize:"11px",fontWeight:"600",
+        background:route.color+"12",color:route.color,border:`1px solid ${route.color}30`,
+        padding:"2px 7px",borderRadius:"5px",whiteSpace:"nowrap"}));
+      const actions=div({display:"flex",gap:"5px",flexShrink:"0"});
+      actions.appendChild(btn("✏️",()=>{
+        state.editMode=b.id;
+        state.form={chain:b.chain,city:b.city,address:b.address,route:b.route,lat:String(b.lat),lng:String(b.lng)};
+        state.formErr="";render();
+      },{padding:"5px 10px",background:isEd?"#BFDBFE":"#F1F5F9",border:`1.5px solid ${isEd?"#93C5FD":"#E2E8F0"}`,
+        borderRadius:"7px",color:isEd?"#1D4ED8":"#64748B",cursor:"pointer",fontSize:"13px"}));
+      actions.appendChild(btn("🗑",()=>{
+        if(!confirm("למחוק?"))return;
+        state.branches=state.branches.filter(x=>x.id!==b.id);
+        delete state.orders[b.id];persist();render();
+      },{padding:"5px 10px",background:"#FEF2F2",border:"1.5px solid #FCA5A5",borderRadius:"7px",color:"#DC2626",cursor:"pointer",fontSize:"13px"}));
+      row.appendChild(actions);bt.appendChild(row);
+    });
+    body.appendChild(bt);
+  }
+
+  // Copyright footer
+  const foot=div({textAlign:"center",padding:"14px",marginTop:"8px",fontSize:"11px",color:"#94A3B8",borderTop:"1px solid #F1F5F9"});
+  foot.innerHTML=`© ${new Date().getFullYear()} כל הזכויות שמורות לסטס זולין &nbsp;·&nbsp; <strong>Gada Group</strong>`;
+  body.appendChild(foot);
+  wrap.appendChild(body);
+  return wrap;
+}
+
+function buildTruckBar(parent,pallets,color){
+  const full=Math.floor(pallets/TRUCK_CAP),rem=pallets%TRUCK_CAP,trips=full+(rem?1:0);
+  const pct=Math.round((pallets/(trips*TRUCK_CAP))*100);
+  const trucks=div({display:"flex",gap:"5px",flexWrap:"wrap",marginBottom:"5px"});
+  for(let i=0;i<full;i++)trucks.appendChild(span("🚛 10/10",{background:color+"15",border:`1.5px solid ${color}`,borderRadius:"6px",padding:"3px 9px",fontSize:"11px",color,fontWeight:"700"}));
+  if(rem>0)trucks.appendChild(span(`🚛 ${rem}/10`,{background:"#FFFBEB",border:"1.5px solid #FCD34D",borderRadius:"6px",padding:"3px 9px",fontSize:"11px",color:"#B45309",fontWeight:"700"}));
+  parent.appendChild(trucks);
+  const bar=div({height:"5px",background:"#F1F5F9",borderRadius:"3px",overflow:"hidden"});
+  const fill=div({height:"100%",width:`${Math.min(100,pct)}%`,background:color,borderRadius:"3px"});
+  bar.appendChild(fill);parent.appendChild(bar);
+  parent.appendChild(div({fontSize:"10px",color:"#94A3B8",marginTop:"3px"},`${pallets} משטחים · ${trips} יציאות · ${pct}% ניצולת`));
+}
+
+// Boot
+document.addEventListener("DOMContentLoaded",()=>{
+  render();
+  document.getElementById("loading").style.display="none";
+});
+
+// iOS install banner
+if(/iphone|ipad|ipod/i.test(navigator.userAgent)&&!window.matchMedia('(display-mode:standalone)').matches){
+  setTimeout(()=>document.getElementById('ib').classList.add('show'),3000);
+}
+// Android install prompt
+let dp;
+window.addEventListener('beforeinstallprompt',e=>{
+  e.preventDefault();dp=e;
+  const b=document.createElement('button');
+  b.textContent='📲 הוסף למסך הבית';
+  b.style.cssText='position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#1E40AF;color:#fff;border:none;padding:11px 22px;border-radius:22px;font-size:14px;font-weight:700;cursor:pointer;box-shadow:0 4px 15px rgba(30,64,175,.4);z-index:200;font-family:inherit;';
+  b.onclick=()=>{dp.prompt();b.remove();};
+  document.body.appendChild(b);
+  setTimeout(()=>b.remove(),9000);
+});
+</script>
+</body>
+</html>
